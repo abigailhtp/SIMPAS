@@ -72,7 +72,6 @@ class KoordinatorController extends Controller
         return view('koordinator.dashboard', compact('koordinator', 'totalPeserta', 'totalPendaftar', 'diterima', 'diproses', 'instansiLabels', 
             'instansiCounts'));
     }
-
     public function profil()
     {
         // Ambil data koordinator berdasarkan user yang login
@@ -89,7 +88,6 @@ class KoordinatorController extends Controller
         // Kirim data ke view
         return view('koordinator.profil', compact('koordinator', 'instansi'));
     }
-
     public function editProfil(Request $request)
     {
         $koordinator = Auth::user()->koordinator;
@@ -139,7 +137,6 @@ class KoordinatorController extends Controller
 
         return redirect()->route('koordinator.profil')->with('success', 'Profil berhasil diperbarui.');
     }
-
     public function pembagianMagang()
     {
         $pendaftarMagang = DB::table('peserta_magangs')
@@ -159,7 +156,6 @@ class KoordinatorController extends Controller
 
         return view('koordinator.pembagianMagang', compact('pendaftarMagang'));
     }
-
     public function detailPendaftar($nip_peserta)
     {
         $pendaftar = DB::table('peserta_magangs')
@@ -195,8 +191,7 @@ class KoordinatorController extends Controller
         // Kembalikan ke view
         return view('koordinator.detailPendaftarMagang', compact('pendaftar'));
     }
-
-public function updateStatus(Request $request)
+    public function updateStatus(Request $request)
 {
     try {
         // Validasi input
@@ -237,10 +232,6 @@ public function updateStatus(Request $request)
         return response()->json(['success' => false, 'message' => 'Terjadi kesalahan: ' . $e->getMessage()], 500);
     }
 }
-
-
-
-    
     public function plottingMentor()
     {
         // Fetching the peserta data along with instansi and mentor information
@@ -270,7 +261,6 @@ public function updateStatus(Request $request)
 
         return view('koordinator.plottingMentor', compact('peserta', 'mentor'));
     }
-
     public function plotMentor(Request $request)
     {
         $request->validate([
@@ -430,8 +420,6 @@ public function penilaianPeserta()
 
     return view('koordinator.penilaianPeserta', compact('peserta'));
 }
-
-
     public function detailNilaiPeserta($nip_peserta)
     {
         // Ambil penilaian terbaru untuk peserta ini
@@ -480,7 +468,6 @@ public function penilaianPeserta()
         return view('koordinator.detailNilaiPeserta', compact('peserta'));
     }
 
-    
     public function updateNilaiPeserta(Request $request, $nip_peserta)
     {
         // Validasi data input yang diterima
