@@ -125,8 +125,6 @@ class PendaftaranMagangController extends Controller
         return redirect()->back()->with('success', 'Pendaftaran magang berhasil!');
         
     }
-
-
     // lihat detail pendaftaran
     public function detailPendaftaran (){
         $pesertaMagang = Auth::user()->pesertaMagang;

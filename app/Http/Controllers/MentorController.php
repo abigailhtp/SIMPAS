@@ -31,6 +31,8 @@ class MentorController extends Controller
         // Menghitung peserta yang tanggal_selesai-nya lebih dari hari ini
         $jumlah_peserta = PendaftaranMagang::where('nip_mentor', $mentor->nip_mentor)
                             ->where('tanggal_selesai', '>', Carbon::today())
+                            ->where('status_magang','Aktif')
+                            ->where('status_pendaftaran','Disetujui')
                             ->count();
 
         return view('mentor.dashboard', compact('mentor', 'mentorName', 'jumlah_peserta'));
@@ -110,6 +112,7 @@ class MentorController extends Controller
         $peserta_magangs = PendaftaranMagang::where('nip_mentor', $mentor->nip_mentor)
             ->whereDate('tanggal_selesai', '>', Carbon::today()) 
             ->where('status_magang','Aktif')
+            ->where('status_pendaftaran','Disetujui')
             ->with('pesertaMagang')
             ->when($search, function ($query) use ($search) {
                 $query->whereHas('pesertaMagang', function ($q) use ($search) {
@@ -131,6 +134,13 @@ class MentorController extends Controller
         ->orderBy('created_at', 'desc')
         ->firstOrFail();
 
+    if (Carbon::parse($pendaftaran->tanggal_mulai)->isAfter(Carbon::today())) {
+        return back()->with('swal', [
+            'icon'  => 'error',
+            'title' => 'Magang Belum Dimulai',
+            'text'  => 'Tanggal mulai peserta ini masih di masa depan, jadi tanggal selesai tidak bisa diubah.',
+        ]);
+    }
     // Update status magang dan tanggal selesai
     $pendaftaran->update([
         'tanggal_selesai' => Carbon::today(),
@@ -149,9 +159,6 @@ class MentorController extends Controller
 
     return redirect()->route('mentor.daftarPeserta')->with('success', 'Peserta ditandai selesai.');
     }
-
-
-
 
     //menampilkan detail tiap peserta
     public function detailPeserta($nip_peserta)
@@ -173,45 +180,61 @@ class MentorController extends Controller
     return view('mentor.detail', compact('peserta', 'pendaftaran'));
     }
 
-
-
-    //page penilaian peserta
-    public function penilaianPeserta(Request $data) {
+//page penilaian peserta
+public function penilaianPeserta(Request $data)
+{
     $mentor = Mentor::where('user_id', Auth::id())->first();
-
     if (!$mentor) {
-        return redirect()->back()->with('error', 'Anda bukan mentor');
+        return back()->with('error', 'Anda bukan mentor');
     }
 
     $search = $data->input('search');
 
+    $latestPenilaian = DB::table('penilaians')
+        ->selectRaw('MAX(id)   AS latest_id, nip_peserta')
+        ->groupBy('nip_peserta');
+
     $peserta_magangs = DB::table('pendaftaran_magangs as pm')
-        ->join('penilaians as p', function ($join) {
-            $join->on('pm.nip_peserta', '=', 'p.nip_peserta')
-                 ->on('pm.created_at', '=', 'p.created_at');
-        })
+        // gabungkan id penilaian terbaru (bisa null)
+        ->leftJoinSub($latestPenilaian, 'lp', 'lp.nip_peserta', '=', 'pm.nip_peserta')
+        // ambil kolom penilaian lengkap
+        ->leftJoin('penilaians as p', 'p.id', '=', 'lp.latest_id')
+        // data peserta
         ->join('peserta_magangs as ps', 'pm.nip_peserta', '=', 'ps.nip_peserta')
+
+        /* --------- FILTER --------- */
         ->where('pm.nip_mentor', $mentor->nip_mentor)
         ->whereDate('pm.tanggal_selesai', '<=', Carbon::today())
-        ->whereNull('p.nip_mentor')
-        ->whereNull('p.nilai1')
-        ->whereNull('p.nilai2')
-        ->whereNull('p.nilai3')
-        ->whereNull('p.nilai4')
-        ->whereNull('p.nilai5')
-        ->whereNull('p.nilai6')
-        ->whereNull('p.nilai7')
-        ->whereNull('p.nilai8')
-        ->whereNull('p.nilai9')
-        ->whereNull('p.nilai10')
-        ->when($search, function ($query) use ($search) {
-            $query->where(function ($q) use ($search) {
-                $q->where('ps.nama_peserta', 'LIKE', "%{$search}%")
-                  ->orWhere('ps.asal_sekolah', 'LIKE', "%{$search}%");
+        // hanya yang BELUM dinilai → p masih null ATAU kolom nilai kosong
+        ->where(function ($q) {
+            $q->whereNull('p.id')               // belum ada penilaian sama sekali
+              ->orWhereNull('p.nip_mentor')     // ada baris, tapi belum diisi
+              ->orWhereNull('p.nilai1')         // nilai1 jadi indikator; tambahkan kalau perlu
+              ->orWhereNull('p.nilai2')
+              ->orWhereNull('p.nilai3')
+              ->orWhereNull('p.nilai4')
+              ->orWhereNull('p.nilai5')
+              ->orWhereNull('p.nilai6')
+              ->orWhereNull('p.nilai7')
+              ->orWhereNull('p.nilai8')
+              ->orWhereNull('p.nilai9')
+              ->orWhereNull('p.nilai10');
+        })
+
+        ->when($search, function ($q) use ($search) {
+            $q->where(function ($sub) use ($search) {
+                $sub->where('ps.nama_peserta',   'like', "%{$search}%")
+                    ->orWhere('ps.asal_sekolah', 'like', "%{$search}%");
             });
         })
+
         ->orderBy('pm.tanggal_mulai', 'desc')
-        ->select('pm.*', 'ps.nama_peserta', 'ps.asal_sekolah', 'p.nilai_total') // tambahkan sesuai kebutuhan
+        ->select(
+            'pm.*',
+            'ps.nama_peserta',
+            'ps.asal_sekolah',
+            'p.nilai_total'   
+        )
         ->paginate(10);
 
     return view('mentor.penilaianPeserta', compact('peserta_magangs', 'search'));
@@ -257,8 +280,6 @@ class MentorController extends Controller
 
     return view('mentor.riwayatPenilaian', compact('peserta_magangs', 'search'));
 }
-
-
 
     //menampilkan penilaian
     public function beriNilai($nip_peserta){
@@ -402,41 +423,36 @@ public function simpanPenilaian(Request $request)
     }
 }
 
-
     //menampilkan nilai akhir
 public function nilaiAkhir($nip_peserta, $created_at)
-{
-    $mentor = Mentor::where('user_id', Auth::id())->first();
-    if (!$mentor) {
-        return redirect()->route('mentor.riwayatPenilaian')->with('error', 'Anda bukan mentor.');
+    {
+        $mentor = Mentor::where('user_id', Auth::id())->first();
+        if (!$mentor) {
+            return redirect()->route('mentor.riwayatPenilaian')
+                             ->with('error', 'Anda bukan mentor.');
+        }
+
+        $tanggal = Carbon::parse($created_at)->toDateString();   // contoh: '2025-06-30'
+
+        $peserta = PendaftaranMagang::with(['pesertaMagang.instansi'])
+            ->where('nip_peserta', $nip_peserta)
+            ->whereDate('created_at', $tanggal)   // ← pakai $tanggal
+            ->first();
+
+        if (!$peserta) {
+            return redirect()->route('mentor.riwayatPenilaian')
+                             ->with('error', 'Peserta tidak ditemukan.');
+        }
+
+        $penilaian = Penilaian::where('nip_peserta', $nip_peserta)
+            ->where('nip_mentor',  $mentor->nip_mentor)
+            ->whereDate('created_at', $tanggal)   // ← pakai $tanggal
+            ->first();
+
+        $isLocked = $penilaian && $penilaian->nilai_total !== null;
+
+        return view('mentor.nilaiAkhir', compact('peserta', 'penilaian', 'isLocked'));
     }
-    
-    // Ambil data pendaftaran magang berdasarkan nip_peserta dan tanggal_selesai yang dikirim lewat URL
-    $peserta = PendaftaranMagang::where('nip_peserta', $nip_peserta)
-        ->where('created_at', $created_at)
-        ->with(['pesertaMagang.instansi'])
-        ->orderBy('created_at', 'desc')
-        ->first();
-        
-    if (!$peserta) {
-        return redirect()->route('mentor.riwayatPenilaian')->with('error', 'Peserta tidak ditemukan.');
-    }
-    
-    // Ambil penilaian yang sesuai dengan nip_peserta, nip_mentor dan tanggal_selesai yang sama serta tanggal created_at yang sama antara penilaian dan pendaftaran_magangs
-    $penilaian = Penilaian::join('pendaftaran_magangs as pm', function($join) use ($created_at) {
-        $join->on('penilaians.nip_peserta', '=', 'pm.nip_peserta')
-             ->where('penilaians.created_at' ,'=',$created_at);
-             //->where('pm.tanggal_selesai', '=', $tanggal_selesai);
-    })
-    ->where('penilaians.nip_peserta', $nip_peserta)
-    ->where('penilaians.nip_mentor', $mentor->nip_mentor)
-    ->select('penilaians.*')
-    ->first();
-    
-    $isLocked = $penilaian ? true : false;
-    
-    return view('mentor.nilaiAkhir', compact('peserta', 'penilaian', 'isLocked'));
-}
 
 
 
